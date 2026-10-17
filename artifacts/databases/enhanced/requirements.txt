@@ -1,0 +1,9 @@
+pymongo>=4.0
+pandas>=1.5
+dash>=2.0
+jupyter-dash>=0.4
+dash-leaflet>=1.0
+plotly>=5.0
+
+# Optional local convenience for loading .env files
+python-dotenv>=1.0

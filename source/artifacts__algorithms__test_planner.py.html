@@ -1,0 +1,61 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>test_planner.py source</title><link rel="stylesheet" href="../styles.css"><body><main class="source-page"><a href="../index.html#artifacts">Back to portfolio</a><h1>test_planner.py</h1><p>Readable source view. Original dashboard credentials are masked for public sharing.</p><pre><code>&quot;&quot;&quot;Integration checks for the compiled CS 499 course planner.&quot;&quot;&quot;
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import re
+import subprocess
+
+HERE = Path(__file__).resolve().parent
+EXE = HERE / &quot;course_planner&quot;
+SAMPLE = HERE / &quot;CS 300 ABCU_Advising_Program_Input.csv&quot;
+
+
+def run(menu):
+    result = subprocess.run([str(EXE)], input=menu, text=True,
+                            capture_output=True, check=True, timeout=5)
+    return result.stdout
+
+
+def scheduled_numbers(output):
+    section = output.split(&quot;Recommended prerequisite-respecting order:\n&quot;, 1)[1]
+    return re.findall(r&quot;^\d+\. ([A-Z0-9]+),&quot;, section, re.MULTILINE)
+
+
+def check_sample():
+    output = run(f&quot;1\n{SAMPLE}\n2\n3\ncsci400\n4\n9\n&quot;)
+    assert &quot;Data loaded successfully (8 courses).&quot; in output
+    assert &quot;CSCI400, Large Software Development\nPrerequisites: CSCI301, CSCI350&quot; in output
+    order = scheduled_numbers(output)
+    assert len(order) == 8 and len(set(order)) == 8
+    positions = {number: index for index, number in enumerate(order)}
+    for line in SAMPLE.read_text().splitlines():
+        number, title, *prerequisites = line.split(&quot;,&quot;)
+        for prerequisite in prerequisites:
+            if prerequisite:
+                assert positions[prerequisite] &lt; positions[number]
+    print(&quot;PASS: supplied eight-course data, search, and all prerequisite edges&quot;)
+
+
+def check_rejections():
+    cases = {
+        &quot;cycle&quot;: (&quot;A,Course A,B\nB,Course B,A\n&quot;, &quot;Circular prerequisite&quot;),
+        &quot;unknown&quot;: (&quot;A,Course A,Z\n&quot;, &quot;unknown prerequisite: Z&quot;),
+        &quot;duplicate&quot;: (&quot;A,Course A\nA,Another Course\n&quot;, &quot;Duplicate course number: A&quot;),
+        &quot;repeated edge&quot;: (&quot;A,Course A\nB,Course B,A,A\n&quot;, &quot;repeats prerequisite: A&quot;),
+    }
+    with TemporaryDirectory() as temp:
+        for name, (data, message) in cases.items():
+            path = Path(temp) / (name + &quot;.csv&quot;)
+            path.write_text(data)
+            output = run(f&quot;1\n{path}\n4\n9\n&quot;)
+            assert message in output
+            assert &quot;Please load the data file first.&quot; in output
+            output = run(f&quot;1\n{SAMPLE}\n1\n{path}\n4\n9\n&quot;)
+            assert message in output
+            assert len(scheduled_numbers(output)) == 8
+        print(&quot;PASS: cycle, unknown course, duplicate course/edge, and safe reload&quot;)
+
+
+if __name__ == &quot;__main__&quot;:
+    check_sample()
+    check_rejections()
+</code></pre></main></body></html>

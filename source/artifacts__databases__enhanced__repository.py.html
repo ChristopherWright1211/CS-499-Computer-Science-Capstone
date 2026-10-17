@@ -1,0 +1,209 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>repository.py source</title><link rel="stylesheet" href="../styles.css"><body><main class="source-page"><a href="../index.html#artifacts">Back to portfolio</a><h1>repository.py</h1><p>Readable source view. Original dashboard credentials are masked for public sharing.</p><pre><code>&quot;&quot;&quot;MongoDB repository for Grazioso Salvare animal records.
+
+Milestone Four adds database-focused capabilities: indexes, projections,
+pagination, sorting, document counts, and server-side aggregation reports.
+&quot;&quot;&quot;
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Iterable, Mapping, Sequence
+from typing import Any
+
+from pymongo import ASCENDING, DESCENDING, MongoClient
+from pymongo.errors import PyMongoError
+
+from config import MongoConfig
+from exceptions import RepositoryError
+
+logger = logging.getLogger(__name__)
+
+SortSpec = Sequence[tuple[str, int]]
+
+
+class AnimalRepository:
+    &quot;&quot;&quot;Isolates MongoDB access from presentation and business logic.&quot;&quot;&quot;
+
+    def __init__(self, config: MongoConfig, client: MongoClient | None = None) -&gt; None:
+        self._config = config
+        try:
+            self._client = client or MongoClient(
+                config.uri,
+                serverSelectionTimeoutMS=config.server_selection_timeout_ms,
+            )
+            self._database = self._client[config.database]
+            self._collection = self._database[config.collection]
+        except PyMongoError as exc:
+            logger.exception(&quot;Failed to initialize MongoDB repository&quot;)
+            raise RepositoryError(&quot;Unable to initialize the animal database.&quot;) from exc
+
+    def ping(self) -&gt; bool:
+        &quot;&quot;&quot;Verify that MongoDB is reachable and authentication succeeds.&quot;&quot;&quot;
+        try:
+            self._client.admin.command(&quot;ping&quot;)
+            return True
+        except PyMongoError as exc:
+            logger.exception(&quot;MongoDB connection check failed&quot;)
+            raise RepositoryError(&quot;Unable to connect to the animal database.&quot;) from exc
+
+    def ensure_indexes(self) -&gt; list[str]:
+        &quot;&quot;&quot;Create indexes used by common dashboard queries.
+
+        The indexes are intentionally non-unique because the historical course
+        dataset may contain repeated values. MongoDB creates an index only when
+        an equivalent one is not already present.
+        &quot;&quot;&quot;
+        try:
+            names = [
+                self._collection.create_index(
+                    [(&quot;animal_id&quot;, ASCENDING)],
+                    name=&quot;idx_animal_id&quot;,
+                ),
+                self._collection.create_index(
+                    [
+                        (&quot;animal_type&quot;, ASCENDING),
+                        (&quot;breed&quot;, ASCENDING),
+                        (&quot;sex_upon_outcome&quot;, ASCENDING),
+                        (&quot;age_upon_outcome_in_weeks&quot;, ASCENDING),
+                    ],
+                    name=&quot;idx_rescue_filter&quot;,
+                ),
+                self._collection.create_index(
+                    [(&quot;location_lat&quot;, ASCENDING), (&quot;location_long&quot;, ASCENDING)],
+                    name=&quot;idx_location&quot;,
+                ),
+            ]
+            logger.info(&quot;Database indexes ready: %s&quot;, names)
+            return names
+        except PyMongoError as exc:
+            logger.exception(&quot;MongoDB index creation failed&quot;)
+            raise RepositoryError(&quot;Database indexes could not be created.&quot;) from exc
+
+    def create(self, data: Mapping[str, Any]) -&gt; bool:
+        &quot;&quot;&quot;Insert one animal record and return whether MongoDB acknowledged it.&quot;&quot;&quot;
+        try:
+            result = self._collection.insert_one(dict(data))
+            logger.info(&quot;Animal record created&quot;)
+            return bool(result.acknowledged)
+        except PyMongoError as exc:
+            logger.exception(&quot;MongoDB create operation failed&quot;)
+            raise RepositoryError(&quot;The animal record could not be created.&quot;) from exc
+
+    def read(
+        self,
+        query: Mapping[str, Any],
+        *,
+        projection: Mapping[str, int] | None = None,
+        limit: int = 0,
+        skip: int = 0,
+        sort: SortSpec | None = None,
+    ) -&gt; list[dict[str, Any]]:
+        &quot;&quot;&quot;Return records with optional projection, paging, and server-side sort.&quot;&quot;&quot;
+        try:
+            cursor = self._collection.find(
+                dict(query),
+                dict(projection) if projection is not None else None,
+            )
+            if sort:
+                cursor = cursor.sort(list(sort))
+            if skip:
+                cursor = cursor.skip(skip)
+            if limit:
+                cursor = cursor.limit(limit)
+            records = list(cursor)
+            logger.info(&quot;Animal records read: %s&quot;, len(records))
+            return records
+        except PyMongoError as exc:
+            logger.exception(&quot;MongoDB read operation failed&quot;)
+            raise RepositoryError(&quot;Animal records could not be retrieved.&quot;) from exc
+
+    def count(self, query: Mapping[str, Any]) -&gt; int:
+        &quot;&quot;&quot;Count matching documents without transferring them to the application.&quot;&quot;&quot;
+        try:
+            return int(self._collection.count_documents(dict(query)))
+        except PyMongoError as exc:
+            logger.exception(&quot;MongoDB count operation failed&quot;)
+            raise RepositoryError(&quot;Animal records could not be counted.&quot;) from exc
+
+    def aggregate_breed_counts(
+        self,
+        query: Mapping[str, Any],
+        *,
+        limit: int = 10,
+    ) -&gt; list[dict[str, Any]]:
+        &quot;&quot;&quot;Return top breeds using a MongoDB aggregation pipeline.
+
+        Aggregating in MongoDB avoids transferring every document to Python just
+        to compute counts for the dashboard chart.
+        &quot;&quot;&quot;
+        pipeline: list[dict[str, Any]] = [
+            {&quot;$match&quot;: dict(query)},
+            {&quot;$match&quot;: {&quot;breed&quot;: {&quot;$nin&quot;: [None, &quot;&quot;]}}},
+            {&quot;$group&quot;: {&quot;_id&quot;: &quot;$breed&quot;, &quot;count&quot;: {&quot;$sum&quot;: 1}}},
+            {&quot;$sort&quot;: {&quot;count&quot;: -1, &quot;_id&quot;: 1}},
+            {&quot;$limit&quot;: limit},
+            {&quot;$project&quot;: {&quot;_id&quot;: 0, &quot;breed&quot;: &quot;$_id&quot;, &quot;count&quot;: 1}},
+        ]
+        try:
+            return list(self._collection.aggregate(pipeline))
+        except PyMongoError as exc:
+            logger.exception(&quot;MongoDB breed aggregation failed&quot;)
+            raise RepositoryError(&quot;Breed summary could not be generated.&quot;) from exc
+
+    def database_summary(self, query: Mapping[str, Any]) -&gt; dict[str, Any]:
+        &quot;&quot;&quot;Return a compact server-side summary for the selected population.&quot;&quot;&quot;
+        pipeline: list[dict[str, Any]] = [
+            {&quot;$match&quot;: dict(query)},
+            {
+                &quot;$facet&quot;: {
+                    &quot;total&quot;: [{&quot;$count&quot;: &quot;count&quot;}],
+                    &quot;animal_types&quot;: [
+                        {&quot;$group&quot;: {&quot;_id&quot;: &quot;$animal_type&quot;, &quot;count&quot;: {&quot;$sum&quot;: 1}}},
+                        {&quot;$sort&quot;: {&quot;count&quot;: -1}},
+                    ],
+                    &quot;sex_outcomes&quot;: [
+                        {&quot;$group&quot;: {&quot;_id&quot;: &quot;$sex_upon_outcome&quot;, &quot;count&quot;: {&quot;$sum&quot;: 1}}},
+                        {&quot;$sort&quot;: {&quot;count&quot;: -1}},
+                    ],
+                }
+            },
+        ]
+        try:
+            result = list(self._collection.aggregate(pipeline))
+            if not result:
+                return {&quot;total&quot;: 0, &quot;animal_types&quot;: [], &quot;sex_outcomes&quot;: []}
+            first = result[0]
+            total_rows = first.get(&quot;total&quot;, [])
+            return {
+                &quot;total&quot;: int(total_rows[0][&quot;count&quot;]) if total_rows else 0,
+                &quot;animal_types&quot;: first.get(&quot;animal_types&quot;, []),
+                &quot;sex_outcomes&quot;: first.get(&quot;sex_outcomes&quot;, []),
+            }
+        except PyMongoError as exc:
+            logger.exception(&quot;MongoDB summary aggregation failed&quot;)
+            raise RepositoryError(&quot;Database summary could not be generated.&quot;) from exc
+
+    def update(self, query: Mapping[str, Any], new_values: Mapping[str, Any]) -&gt; int:
+        &quot;&quot;&quot;Update matching animal records and return the modified count.&quot;&quot;&quot;
+        try:
+            result = self._collection.update_many(dict(query), {&quot;$set&quot;: dict(new_values)})
+            logger.info(&quot;Animal records updated: %s&quot;, result.modified_count)
+            return int(result.modified_count)
+        except PyMongoError as exc:
+            logger.exception(&quot;MongoDB update operation failed&quot;)
+            raise RepositoryError(&quot;Animal records could not be updated.&quot;) from exc
+
+    def delete(self, query: Mapping[str, Any]) -&gt; int:
+        &quot;&quot;&quot;Delete matching animal records and return the deleted count.&quot;&quot;&quot;
+        try:
+            result = self._collection.delete_many(dict(query))
+            logger.info(&quot;Animal records deleted: %s&quot;, result.deleted_count)
+            return int(result.deleted_count)
+        except PyMongoError as exc:
+            logger.exception(&quot;MongoDB delete operation failed&quot;)
+            raise RepositoryError(&quot;Animal records could not be deleted.&quot;) from exc
+
+    def close(self) -&gt; None:
+        &quot;&quot;&quot;Close the MongoDB client connection.&quot;&quot;&quot;
+        self._client.close()
+</code></pre></main></body></html>

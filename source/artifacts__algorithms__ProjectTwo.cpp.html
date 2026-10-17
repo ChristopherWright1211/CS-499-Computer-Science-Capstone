@@ -1,0 +1,323 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ProjectTwo.cpp source</title><link rel="stylesheet" href="../styles.css"><body><main class="source-page"><a href="../index.html#artifacts">Back to portfolio</a><h1>ProjectTwo.cpp</h1><p>Readable source view. Original dashboard credentials are masked for public sharing.</p><pre><code>#include &lt;algorithm&gt;
+#include &lt;cctype&gt;
+#include &lt;fstream&gt;
+#include &lt;iostream&gt;
+#include &lt;sstream&gt;
+#include &lt;string&gt;
+#include &lt;vector&gt;
+
+using namespace std;
+
+struct Course {
+    string courseNumber;
+    string courseTitle;
+    vector&lt;string&gt; prerequisites;
+};
+
+struct Node {
+    Course course;
+    Node* left;
+    Node* right;
+
+    explicit Node(const Course&amp; aCourse) : course(aCourse), left(nullptr), right(nullptr) {}
+};
+
+class BinarySearchTree {
+private:
+    Node* root;
+
+    static string trim(const string&amp; text) {
+        size_t start = 0;
+        while (start &lt; text.size() &amp;&amp; isspace(static_cast&lt;unsigned char&gt;(text[start]))) {
+            ++start;
+        }
+
+        size_t end = text.size();
+        while (end &gt; start &amp;&amp; isspace(static_cast&lt;unsigned char&gt;(text[end - 1]))) {
+            --end;
+        }
+
+        return text.substr(start, end - start);
+    }
+
+    static string toUpperCase(string text) {
+        for (char&amp; ch : text) {
+            ch = static_cast&lt;char&gt;(toupper(static_cast&lt;unsigned char&gt;(ch)));
+        }
+        return text;
+    }
+
+    static vector&lt;string&gt; splitCsvLine(const string&amp; line) {
+        vector&lt;string&gt; tokens;
+        string token;
+        stringstream stream(line);
+
+        while (getline(stream, token, &#x27;,&#x27;)) {
+            tokens.push_back(trim(token));
+        }
+
+        return tokens;
+    }
+
+    static bool courseNumberLess(const string&amp; leftValue, const string&amp; rightValue) {
+        return leftValue &lt; rightValue;
+    }
+
+    static void destroyTree(Node* node) {
+        if (node == nullptr) {
+            return;
+        }
+        destroyTree(node-&gt;left);
+        destroyTree(node-&gt;right);
+        delete node;
+    }
+
+    void addNode(Node* node, const Course&amp; course) {
+        if (courseNumberLess(course.courseNumber, node-&gt;course.courseNumber)) {
+            if (node-&gt;left == nullptr) {
+                node-&gt;left = new Node(course);
+            }
+            else {
+                addNode(node-&gt;left, course);
+            }
+        }
+        else {
+            if (node-&gt;right == nullptr) {
+                node-&gt;right = new Node(course);
+            }
+            else {
+                addNode(node-&gt;right, course);
+            }
+        }
+    }
+
+    void inOrder(Node* node) const {
+        if (node == nullptr) {
+            return;
+        }
+
+        inOrder(node-&gt;left);
+        cout &lt;&lt; node-&gt;course.courseNumber &lt;&lt; &quot;, &quot; &lt;&lt; node-&gt;course.courseTitle &lt;&lt; endl;
+        inOrder(node-&gt;right);
+    }
+
+    Course* searchNode(Node* node, const string&amp; courseNumber) const {
+        if (node == nullptr) {
+            return nullptr;
+        }
+
+        string target = toUpperCase(courseNumber);
+        string current = toUpperCase(node-&gt;course.courseNumber);
+
+        if (target == current) {
+            return &amp;(node-&gt;course);
+        }
+
+        if (target &lt; current) {
+            return searchNode(node-&gt;left, target);
+        }
+
+        return searchNode(node-&gt;right, target);
+    }
+
+public:
+    BinarySearchTree() : root(nullptr) {}
+
+    ~BinarySearchTree() {
+        destroyTree(root);
+    }
+
+    void clear() {
+        destroyTree(root);
+        root = nullptr;
+    }
+
+    bool isEmpty() const {
+        return root == nullptr;
+    }
+
+    void insertCourse(const Course&amp; course) {
+        if (root == nullptr) {
+            root = new Node(course);
+        }
+        else {
+            addNode(root, course);
+        }
+    }
+
+    Course* searchCourse(const string&amp; courseNumber) const {
+        return searchNode(root, courseNumber);
+    }
+
+    void printCourseList() const {
+        inOrder(root);
+    }
+
+    bool loadFromFile(const string&amp; fileName) {
+        ifstream inputFile(fileName);
+        if (!inputFile.is_open()) {
+            cout &lt;&lt; &quot;Error: Could not open file \&quot;&quot; &lt;&lt; fileName &lt;&lt; &quot;\&quot;.&quot; &lt;&lt; endl;
+            return false;
+        }
+
+        clear();
+
+        vector&lt;Course&gt; pendingCourses;
+        string line;
+        int lineNumber = 0;
+
+        while (getline(inputFile, line)) {
+            ++lineNumber;
+
+            if (trim(line).empty()) {
+                continue;
+            }
+
+            vector&lt;string&gt; tokens = splitCsvLine(line);
+            if (tokens.size() &lt; 2) {
+                cout &lt;&lt; &quot;Warning: Skipping invalid line &quot; &lt;&lt; lineNumber &lt;&lt; &quot;.&quot; &lt;&lt; endl;
+                continue;
+            }
+
+            Course course;
+            course.courseNumber = toUpperCase(tokens[0]);
+            course.courseTitle = tokens[1];
+
+            if (course.courseNumber.empty() || course.courseTitle.empty()) {
+                cout &lt;&lt; &quot;Warning: Skipping invalid line &quot; &lt;&lt; lineNumber &lt;&lt; &quot;.&quot; &lt;&lt; endl;
+                continue;
+            }
+
+            for (size_t i = 2; i &lt; tokens.size(); ++i) {
+                if (!tokens[i].empty()) {
+                    course.prerequisites.push_back(toUpperCase(tokens[i]));
+                }
+            }
+
+            pendingCourses.push_back(course);
+        }
+
+        inputFile.close();
+
+        for (const Course&amp; course : pendingCourses) {
+            insertCourse(course);
+        }
+
+        for (const Course&amp; course : pendingCourses) {
+            for (const string&amp; prerequisite : course.prerequisites) {
+                if (searchCourse(prerequisite) == nullptr) {
+                    cout &lt;&lt; &quot;Warning: &quot; &lt;&lt; course.courseNumber
+                         &lt;&lt; &quot; has an invalid prerequisite: &quot; &lt;&lt; prerequisite &lt;&lt; endl;
+                }
+            }
+        }
+
+        cout &lt;&lt; &quot;Data loaded successfully.&quot; &lt;&lt; endl;
+        return true;
+    }
+};
+
+static void displayMenu() {
+    cout &lt;&lt; &quot;1. Load Data Structure.&quot; &lt;&lt; endl;
+    cout &lt;&lt; &quot;2. Print Course List.&quot; &lt;&lt; endl;
+    cout &lt;&lt; &quot;3. Print Course.&quot; &lt;&lt; endl;
+    cout &lt;&lt; &quot;9. Exit&quot; &lt;&lt; endl;
+}
+
+static bool readMenuChoice(int&amp; choice) {
+    string input;
+    getline(cin, input);
+
+    if (input.empty()) {
+        return false;
+    }
+
+    stringstream stream(input);
+    stream &gt;&gt; choice;
+
+    return !stream.fail() &amp;&amp; stream.eof();
+}
+
+static void printCourseInformation(BinarySearchTree&amp; bst) {
+    cout &lt;&lt; &quot;What course do you want to know about? &quot;;
+    string courseNumber;
+    getline(cin, courseNumber);
+
+    Course* course = bst.searchCourse(courseNumber);
+    if (course == nullptr) {
+        cout &lt;&lt; &quot;Course not found.&quot; &lt;&lt; endl;
+        return;
+    }
+
+    cout &lt;&lt; course-&gt;courseNumber &lt;&lt; &quot;, &quot; &lt;&lt; course-&gt;courseTitle &lt;&lt; endl;
+
+    cout &lt;&lt; &quot;Prerequisites: &quot;;
+    if (course-&gt;prerequisites.empty()) {
+        cout &lt;&lt; &quot;None&quot; &lt;&lt; endl;
+        return;
+    }
+
+    for (size_t i = 0; i &lt; course-&gt;prerequisites.size(); ++i) {
+        cout &lt;&lt; course-&gt;prerequisites[i];
+        if (i &lt; course-&gt;prerequisites.size() - 1) {
+            cout &lt;&lt; &quot;, &quot;;
+        }
+    }
+    cout &lt;&lt; endl;
+}
+
+int main() {
+    BinarySearchTree courseTree;
+    string fileName;
+    int choice = 0;
+
+    cout &lt;&lt; &quot;Welcome to the course planner.&quot; &lt;&lt; endl;
+
+    while (choice != 9) {
+        displayMenu();
+        cout &lt;&lt; &quot;What would you like to do? &quot;;
+
+        if (!readMenuChoice(choice)) {
+            cout &lt;&lt; &quot;Invalid input.&quot; &lt;&lt; endl;
+            continue;
+        }
+
+        switch (choice) {
+        case 1:
+            cout &lt;&lt; &quot;What is the name of the input file? &quot;;
+            getline(cin, fileName);
+            courseTree.loadFromFile(fileName);
+            break;
+
+        case 2:
+            if (courseTree.isEmpty()) {
+                cout &lt;&lt; &quot;Please load the data file first.&quot; &lt;&lt; endl;
+            }
+            else {
+                cout &lt;&lt; &quot;Here is a sample schedule:&quot; &lt;&lt; endl;
+                courseTree.printCourseList();
+            }
+            break;
+
+        case 3:
+            if (courseTree.isEmpty()) {
+                cout &lt;&lt; &quot;Please load the data file first.&quot; &lt;&lt; endl;
+            }
+            else {
+                printCourseInformation(courseTree);
+            }
+            break;
+
+        case 9:
+            cout &lt;&lt; &quot;Thank you for using the course planner!&quot; &lt;&lt; endl;
+            break;
+
+        default:
+            cout &lt;&lt; choice &lt;&lt; &quot; is not a valid option.&quot; &lt;&lt; endl;
+            break;
+        }
+    }
+
+    return 0;
+}
+</code></pre></main></body></html>

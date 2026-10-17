@@ -1,0 +1,69 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>config.py source</title><link rel="stylesheet" href="../styles.css"><body><main class="source-page"><a href="../index.html#artifacts">Back to portfolio</a><h1>config.py</h1><p>Readable source view. Original dashboard credentials are masked for public sharing.</p><pre><code>&quot;&quot;&quot;Configuration management for the Grazioso Salvare MongoDB connection.&quot;&quot;&quot;
+
+from dataclasses import dataclass
+import os
+from urllib.parse import quote_plus
+
+from exceptions import ConfigurationError
+
+
+@dataclass(frozen=True)
+class MongoConfig:
+    &quot;&quot;&quot;MongoDB settings used by the data-access layer.&quot;&quot;&quot;
+
+    username: str
+    password: str
+    host: str = &quot;localhost&quot;
+    port: int = 27017
+    database: str = &quot;aac&quot;
+    collection: str = &quot;animals&quot;
+    auth_source: str = &quot;admin&quot;
+    server_selection_timeout_ms: int = 5000
+
+    @property
+    def uri(self) -&gt; str:
+        &quot;&quot;&quot;Build a MongoDB URI without storing credentials in source code.&quot;&quot;&quot;
+        username = quote_plus(self.username)
+        password = quote_plus(self.password)
+        return (
+            f&quot;mongodb://{username}:{password}@{self.host}:{self.port}/&quot;
+            f&quot;{self.database}?authSource={self.auth_source}&quot;
+        )
+
+    @classmethod
+    def from_env(cls) -&gt; &quot;MongoConfig&quot;:
+        &quot;&quot;&quot;Load database settings from environment variables.&quot;&quot;&quot;
+        username = os.getenv(&quot;AAC_USERNAME&quot;)
+        password = os.getenv(&quot;AAC_PASSWORD&quot;)
+
+        if not username or not password:
+            raise ConfigurationError(
+                &quot;Database credentials are missing. Set AAC_USERNAME and AAC_PASSWORD.&quot;
+            )
+
+        try:
+            port = int(os.getenv(&quot;AAC_PORT&quot;, &quot;27017&quot;))
+            timeout = int(os.getenv(&quot;AAC_TIMEOUT_MS&quot;, &quot;5000&quot;))
+        except ValueError as exc:
+            raise ConfigurationError(
+                &quot;AAC_PORT and AAC_TIMEOUT_MS must contain whole numbers.&quot;
+            ) from exc
+
+        return cls(
+            username=username,
+            password=password,
+            host=os.getenv(&quot;AAC_HOST&quot;, &quot;localhost&quot;),
+            port=port,
+            database=os.getenv(&quot;AAC_DATABASE&quot;, &quot;aac&quot;),
+            collection=os.getenv(&quot;AAC_COLLECTION&quot;, &quot;animals&quot;),
+            auth_source=os.getenv(&quot;AAC_AUTH_SOURCE&quot;, &quot;admin&quot;),
+            server_selection_timeout_ms=timeout,
+        )
+
+    @classmethod
+    def from_credentials(cls, username: str, password: str) -&gt; &quot;MongoConfig&quot;:
+        &quot;&quot;&quot;Create configuration from credentials supplied by existing client code.&quot;&quot;&quot;
+        if not username or not password:
+            raise ConfigurationError(&quot;A database username and password are required.&quot;)
+        return cls(username=username, password=password)
+</code></pre></main></body></html>

@@ -1,0 +1,290 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ProjectTwoDashboard_Database_Enhanced.ipynb source</title><link rel="stylesheet" href="../styles.css"><body><main class="source-page"><a href="../index.html#artifacts">Back to portfolio</a><h1>ProjectTwoDashboard_Database_Enhanced.ipynb</h1><p>Readable source view. Original dashboard credentials are masked for public sharing.</p><pre><code># Setup the Jupyter version of Dash
+from jupyter_dash import JupyterDash
+
+# Dashboard imports
+import dash_leaflet as dl
+from dash import dcc, html, dash_table
+from dash.dependencies import Input, Output
+import plotly.express as px
+import base64
+import pandas as pd
+
+JupyterDash.infer_jupyter_proxy_config()
+
+# CRUD module import
+from CRUD_Python_Module import AnimalShelter
+from exceptions import AnimalShelterError
+
+
+###########################
+# Data Manipulation / Model
+###########################
+
+# Database credentials are loaded from environment variables instead of source code.
+try:
+    db = AnimalShelter.from_env()
+    db.ensure_indexes()
+    df = pd.DataFrame.from_records(db.read({}))
+    total_records = db.count({})
+except AnimalShelterError as exc:
+    print(f&quot;Unable to load animal data: {exc}&quot;)
+    df = pd.DataFrame()
+    total_records = 0
+
+if &quot;_id&quot; in df.columns:
+    df.drop(columns=[&quot;_id&quot;], inplace=True)
+
+
+#########################
+# Dashboard Layout / View
+#########################
+
+app = JupyterDash(__name__)
+
+# Logo
+image_filename = &quot;Grazioso Salvare Logo.png&quot;
+
+try:
+    encoded_image = base64.b64encode(open(image_filename, &quot;rb&quot;).read()).decode()
+    logo = html.Img(
+        src=&quot;data:image/png;base64,{}&quot;.format(encoded_image),
+        style={&quot;height&quot;: &quot;120px&quot;}
+    )
+except:
+    logo = html.H3(&quot;Grazioso Salvare Logo&quot;)
+
+
+app.layout = html.Div([
+    html.Center([
+        logo,
+        html.H1(&quot;CS-340 Project Two Dashboard&quot;),
+        html.H2(&quot;Christopher Wright&quot;),
+        html.P(f&quot;MongoDB records available: {total_records}&quot;)
+    ]),
+
+    html.Hr(),
+
+    html.Div([
+        html.H3(&quot;Rescue Animal Filters&quot;),
+
+        dcc.RadioItems(
+            id=&quot;filter-type&quot;,
+            options=[
+                {&quot;label&quot;: &quot;Water Rescue&quot;, &quot;value&quot;: &quot;water&quot;},
+                {&quot;label&quot;: &quot;Mountain or Wilderness Rescue&quot;, &quot;value&quot;: &quot;mountain&quot;},
+                {&quot;label&quot;: &quot;Disaster or Individual Tracking&quot;, &quot;value&quot;: &quot;disaster&quot;},
+                {&quot;label&quot;: &quot;Reset&quot;, &quot;value&quot;: &quot;reset&quot;}
+            ],
+            value=&quot;reset&quot;,
+            labelStyle={&quot;display&quot;: &quot;inline-block&quot;, &quot;margin-right&quot;: &quot;20px&quot;}
+        )
+    ]),
+
+    html.Hr(),
+
+    dash_table.DataTable(
+        id=&quot;datatable-id&quot;,
+        columns=[
+            {&quot;name&quot;: i, &quot;id&quot;: i, &quot;deletable&quot;: False, &quot;selectable&quot;: True}
+            for i in df.columns
+        ],
+        data=df.to_dict(&quot;records&quot;),
+        page_size=10,
+        sort_action=&quot;native&quot;,
+        filter_action=&quot;native&quot;,
+        row_selectable=&quot;single&quot;,
+        selected_rows=[0],
+        selected_columns=[],
+        style_table={&quot;overflowX&quot;: &quot;auto&quot;},
+        style_cell={
+            &quot;textAlign&quot;: &quot;left&quot;,
+            &quot;minWidth&quot;: &quot;100px&quot;,
+            &quot;width&quot;: &quot;150px&quot;,
+            &quot;maxWidth&quot;: &quot;200px&quot;,
+            &quot;whiteSpace&quot;: &quot;normal&quot;
+        }
+    ),
+
+    html.Br(),
+    html.Hr(),
+
+    html.Div(
+        className=&quot;row&quot;,
+        style={&quot;display&quot;: &quot;flex&quot;},
+        children=[
+            html.Div(
+                id=&quot;graph-id&quot;,
+                className=&quot;col s12 m6&quot;,
+                style={&quot;width&quot;: &quot;50%&quot;}
+            ),
+            html.Div(
+                id=&quot;map-id&quot;,
+                className=&quot;col s12 m6&quot;,
+                style={&quot;width&quot;: &quot;50%&quot;}
+            )
+        ]
+    )
+])
+
+
+#############################################
+# Interaction Between Components / Controller
+#############################################
+
+def build_rescue_query(filter_type):
+    &quot;&quot;&quot;Return the MongoDB query used by both the table and aggregation report.&quot;&quot;&quot;
+    if filter_type == &quot;water&quot;:
+        return {
+            &quot;animal_type&quot;: &quot;Dog&quot;,
+            &quot;breed&quot;: {&quot;$in&quot;: [
+                &quot;Labrador Retriever Mix&quot;,
+                &quot;Chesapeake Bay Retriever&quot;,
+                &quot;Newfoundland&quot;
+            ]},
+            &quot;sex_upon_outcome&quot;: &quot;Intact Female&quot;,
+            &quot;age_upon_outcome_in_weeks&quot;: {&quot;$gte&quot;: 26, &quot;$lte&quot;: 156}
+        }
+    if filter_type == &quot;mountain&quot;:
+        return {
+            &quot;animal_type&quot;: &quot;Dog&quot;,
+            &quot;breed&quot;: {&quot;$in&quot;: [
+                &quot;German Shepherd&quot;,
+                &quot;Alaskan Malamute&quot;,
+                &quot;Old English Sheepdog&quot;,
+                &quot;Siberian Husky&quot;,
+                &quot;Rottweiler&quot;
+            ]},
+            &quot;sex_upon_outcome&quot;: &quot;Intact Male&quot;,
+            &quot;age_upon_outcome_in_weeks&quot;: {&quot;$gte&quot;: 26, &quot;$lte&quot;: 156}
+        }
+    if filter_type == &quot;disaster&quot;:
+        return {
+            &quot;animal_type&quot;: &quot;Dog&quot;,
+            &quot;breed&quot;: {&quot;$in&quot;: [
+                &quot;Doberman Pinscher&quot;,
+                &quot;German Shepherd&quot;,
+                &quot;Golden Retriever&quot;,
+                &quot;Bloodhound&quot;,
+                &quot;Rottweiler&quot;
+            ]},
+            &quot;sex_upon_outcome&quot;: &quot;Intact Male&quot;,
+            &quot;age_upon_outcome_in_weeks&quot;: {&quot;$gte&quot;: 20, &quot;$lte&quot;: 300}
+        }
+    return {}
+
+
+@app.callback(
+    Output(&quot;datatable-id&quot;, &quot;data&quot;),
+    [Input(&quot;filter-type&quot;, &quot;value&quot;)]
+)
+def update_dashboard(filter_type):
+
+    query = build_rescue_query(filter_type)
+
+    try:
+        filtered_df = pd.DataFrame.from_records(db.read(query))
+    except AnimalShelterError as exc:
+        print(f&quot;Unable to refresh dashboard data: {exc}&quot;)
+        return []
+
+    if &quot;_id&quot; in filtered_df.columns:
+        filtered_df.drop(columns=[&quot;_id&quot;], inplace=True)
+
+    return filtered_df.to_dict(&quot;records&quot;)
+
+
+@app.callback(
+    Output(&quot;graph-id&quot;, &quot;children&quot;),
+    [Input(&quot;filter-type&quot;, &quot;value&quot;)]
+)
+def update_graphs(filter_type):
+    # Use the same rescue filter as the table, but calculate breed counts
+    # in MongoDB with an aggregation pipeline instead of pandas.
+    query = build_rescue_query(filter_type)
+    try:
+        breed_count = pd.DataFrame.from_records(
+            db.aggregate_breed_counts(query, limit=10)
+        )
+    except AnimalShelterError as exc:
+        print(f&quot;Unable to generate breed summary: {exc}&quot;)
+        return [html.H3(&quot;Breed summary unavailable&quot;)]
+
+    if breed_count.empty:
+        return [html.H3(&quot;No breed data available&quot;)]
+
+    return [
+        dcc.Graph(
+            figure=px.pie(
+                breed_count,
+                names=&quot;breed&quot;,
+                values=&quot;count&quot;,
+                title=&quot;Top 10 Breeds in Current Filter (MongoDB Aggregation)&quot;
+            )
+        )
+    ]
+
+
+@app.callback(
+    Output(&quot;datatable-id&quot;, &quot;style_data_conditional&quot;),
+    [Input(&quot;datatable-id&quot;, &quot;selected_columns&quot;)]
+)
+def update_styles(selected_columns):
+    return [{
+        &quot;if&quot;: {&quot;column_id&quot;: i},
+        &quot;background_color&quot;: &quot;#D2F3FF&quot;
+    } for i in selected_columns]
+
+
+@app.callback(
+    Output(&quot;map-id&quot;, &quot;children&quot;),
+    [
+        Input(&quot;datatable-id&quot;, &quot;derived_virtual_data&quot;),
+        Input(&quot;datatable-id&quot;, &quot;derived_virtual_selected_rows&quot;)
+    ]
+)
+def update_map(viewData, index):
+
+    if viewData is None or len(viewData) == 0:
+        return []
+
+    dff = pd.DataFrame.from_dict(viewData)
+
+    if index is None or len(index) == 0:
+        row = 0
+    else:
+        row = index[0]
+
+    if row &gt;= len(dff):
+        row = 0
+
+    return [
+        dl.Map(
+            style={&quot;width&quot;: &quot;1000px&quot;, &quot;height&quot;: &quot;500px&quot;},
+            center=[30.75, -97.48],
+            zoom=10,
+            children=[
+                dl.TileLayer(id=&quot;base-layer-id&quot;),
+
+                dl.Marker(
+                    position=[
+                        dff.iloc[row][&quot;location_lat&quot;],
+                        dff.iloc[row][&quot;location_long&quot;]
+                    ],
+                    children=[
+                        dl.Tooltip(dff.iloc[row][&quot;breed&quot;]),
+                        dl.Popup([
+                            html.H1(&quot;Animal Name&quot;),
+                            html.P(dff.iloc[row][&quot;name&quot;])
+                        ])
+                    ]
+                )
+            ]
+        )
+    ]
+
+
+app.run_server(debug=True, port=8050)
+
+
+
+</code></pre></main></body></html>

@@ -1,0 +1,93 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>service.py source</title><link rel="stylesheet" href="../styles.css"><body><main class="source-page"><a href="../index.html#artifacts">Back to portfolio</a><h1>service.py</h1><p>Readable source view. Original dashboard credentials are masked for public sharing.</p><pre><code>&quot;&quot;&quot;Business logic and validation for Grazioso Salvare animal records.&quot;&quot;&quot;
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Mapping
+from typing import Any, Protocol
+
+from exceptions import ValidationError
+
+logger = logging.getLogger(__name__)
+
+
+class AnimalRepositoryProtocol(Protocol):
+    &quot;&quot;&quot;Interface required by AnimalService, which also makes testing easier.&quot;&quot;&quot;
+
+    def create(self, data: Mapping[str, Any]) -&gt; bool: ...
+    def read(self, query: Mapping[str, Any]) -&gt; list[dict[str, Any]]: ...
+    def update(self, query: Mapping[str, Any], new_values: Mapping[str, Any]) -&gt; int: ...
+    def delete(self, query: Mapping[str, Any]) -&gt; int: ...
+    def close(self) -&gt; None: ...
+
+
+class AnimalService:
+    &quot;&quot;&quot;Validates input and applies application rules before database access.&quot;&quot;&quot;
+
+    def __init__(
+        self,
+        repository: AnimalRepositoryProtocol,
+        *,
+        allow_mass_changes: bool = False,
+    ) -&gt; None:
+        self._repository = repository
+        self._allow_mass_changes = allow_mass_changes
+
+    @staticmethod
+    def _require_mapping(
+        value: Mapping[str, Any] | None,
+        name: str,
+        *,
+        allow_empty: bool,
+    ) -&gt; dict[str, Any]:
+        if value is None:
+            raise ValidationError(f&quot;{name} cannot be empty.&quot;)
+        if not isinstance(value, Mapping):
+            raise ValidationError(f&quot;{name} must be a dictionary-like object.&quot;)
+
+        normalized = dict(value)
+        if not allow_empty and not normalized:
+            raise ValidationError(f&quot;{name} must contain at least one field.&quot;)
+        return normalized
+
+    def create(self, data: Mapping[str, Any] | None) -&gt; bool:
+        &quot;&quot;&quot;Validate and create one animal record.&quot;&quot;&quot;
+        normalized = self._require_mapping(data, &quot;Animal data&quot;, allow_empty=False)
+        return self._repository.create(normalized)
+
+    def read(self, query: Mapping[str, Any] | None) -&gt; list[dict[str, Any]]:
+        &quot;&quot;&quot;Validate and read matching records. An empty query intentionally means all.&quot;&quot;&quot;
+        normalized = self._require_mapping(query, &quot;Query&quot;, allow_empty=True)
+        return self._repository.read(normalized)
+
+    def update(
+        self,
+        query: Mapping[str, Any] | None,
+        new_values: Mapping[str, Any] | None,
+    ) -&gt; int:
+        &quot;&quot;&quot;Validate and update matching records.&quot;&quot;&quot;
+        normalized_query = self._require_mapping(
+            query,
+            &quot;Query&quot;,
+            allow_empty=self._allow_mass_changes,
+        )
+        normalized_values = self._require_mapping(
+            new_values,
+            &quot;New values&quot;,
+            allow_empty=False,
+        )
+        return self._repository.update(normalized_query, normalized_values)
+
+    def delete(self, query: Mapping[str, Any] | None) -&gt; int:
+        &quot;&quot;&quot;Validate and delete matching records.&quot;&quot;&quot;
+        normalized_query = self._require_mapping(
+            query,
+            &quot;Query&quot;,
+            allow_empty=self._allow_mass_changes,
+        )
+        return self._repository.delete(normalized_query)
+
+    def close(self) -&gt; None:
+        &quot;&quot;&quot;Release repository resources.&quot;&quot;&quot;
+        self._repository.close()
+</code></pre></main></body></html>

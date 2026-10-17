@@ -1,0 +1,71 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>test_service.py source</title><link rel="stylesheet" href="../styles.css"><body><main class="source-page"><a href="../index.html#artifacts">Back to portfolio</a><h1>test_service.py</h1><p>Readable source view. Original dashboard credentials are masked for public sharing.</p><pre><code>&quot;&quot;&quot;Unit tests for the AnimalService business layer.&quot;&quot;&quot;
+
+import unittest
+from unittest.mock import Mock
+
+from exceptions import ValidationError
+from service import AnimalService
+
+
+class AnimalServiceTests(unittest.TestCase):
+    def setUp(self) -&gt; None:
+        self.repository = Mock()
+        self.service = AnimalService(self.repository)
+
+    def test_create_valid_record(self) -&gt; None:
+        self.repository.create.return_value = True
+        record = {&quot;animal_id&quot;: &quot;TEST001&quot;, &quot;animal_type&quot;: &quot;Dog&quot;}
+
+        result = self.service.create(record)
+
+        self.assertTrue(result)
+        self.repository.create.assert_called_once_with(record)
+
+    def test_create_rejects_empty_record(self) -&gt; None:
+        with self.assertRaises(ValidationError):
+            self.service.create({})
+
+    def test_read_allows_empty_query(self) -&gt; None:
+        self.repository.read.return_value = [{&quot;animal_id&quot;: &quot;TEST001&quot;}]
+
+        result = self.service.read({})
+
+        self.assertEqual(1, len(result))
+        self.repository.read.assert_called_once_with({})
+
+    def test_update_rejects_empty_query_by_default(self) -&gt; None:
+        with self.assertRaises(ValidationError):
+            self.service.update({}, {&quot;name&quot;: &quot;Updated&quot;})
+
+    def test_delete_rejects_empty_query_by_default(self) -&gt; None:
+        with self.assertRaises(ValidationError):
+            self.service.delete({})
+
+    def test_update_valid_record(self) -&gt; None:
+        self.repository.update.return_value = 1
+
+        count = self.service.update(
+            {&quot;animal_id&quot;: &quot;TEST001&quot;},
+            {&quot;name&quot;: &quot;Scout&quot;},
+        )
+
+        self.assertEqual(1, count)
+        self.repository.update.assert_called_once_with(
+            {&quot;animal_id&quot;: &quot;TEST001&quot;},
+            {&quot;name&quot;: &quot;Scout&quot;},
+        )
+
+    def test_mass_change_can_be_enabled_explicitly(self) -&gt; None:
+        repository = Mock()
+        repository.delete.return_value = 3
+        service = AnimalService(repository, allow_mass_changes=True)
+
+        count = service.delete({})
+
+        self.assertEqual(3, count)
+        repository.delete.assert_called_once_with({})
+
+
+if __name__ == &quot;__main__&quot;:
+    unittest.main()
+</code></pre></main></body></html>

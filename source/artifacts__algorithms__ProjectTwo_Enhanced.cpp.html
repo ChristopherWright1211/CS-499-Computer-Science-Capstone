@@ -1,0 +1,313 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ProjectTwo_Enhanced.cpp source</title><link rel="stylesheet" href="../styles.css"><body><main class="source-page"><a href="../index.html#artifacts">Back to portfolio</a><h1>ProjectTwo_Enhanced.cpp</h1><p>Readable source view. Original dashboard credentials are masked for public sharing.</p><pre><code>#include &lt;algorithm&gt;
+#include &lt;cctype&gt;
+#include &lt;fstream&gt;
+#include &lt;iostream&gt;
+#include &lt;queue&gt;
+#include &lt;sstream&gt;
+#include &lt;string&gt;
+#include &lt;unordered_map&gt;
+#include &lt;unordered_set&gt;
+#include &lt;vector&gt;
+
+using namespace std;
+
+struct Course {
+    string courseNumber;
+    string courseTitle;
+    vector&lt;string&gt; prerequisites;
+};
+
+static string trim(const string&amp; text) {
+    const size_t first = text.find_first_not_of(&quot; \t\r\n&quot;);
+    if (first == string::npos) return &quot;&quot;;
+    const size_t last = text.find_last_not_of(&quot; \t\r\n&quot;);
+    return text.substr(first, last - first + 1);
+}
+
+static string upper(string value) {
+    for (char&amp; ch : value) {
+        ch = static_cast&lt;char&gt;(toupper(static_cast&lt;unsigned char&gt;(ch)));
+    }
+    return value;
+}
+
+static vector&lt;string&gt; splitCsvLine(const string&amp; line) {
+    vector&lt;string&gt; tokens;
+    string token;
+    stringstream stream(line);
+    while (getline(stream, token, &#x27;,&#x27;)) tokens.push_back(trim(token));
+    // The course file has plain comma-delimited fields, without quoted commas.
+    if (!line.empty() &amp;&amp; line.back() == &#x27;,&#x27;) tokens.push_back(&quot;&quot;);
+    return tokens;
+}
+
+struct Node {
+    Course course;
+    Node* left = nullptr;
+    Node* right = nullptr;
+    explicit Node(const Course&amp; value) : course(value) {}
+};
+
+class BinarySearchTree {
+    Node* root = nullptr;
+
+    static void destroy(Node* node) {
+        if (!node) return;
+        destroy(node-&gt;left);
+        destroy(node-&gt;right);
+        delete node;
+    }
+
+    static void printInOrder(const Node* node) {
+        if (!node) return;
+        printInOrder(node-&gt;left);
+        cout &lt;&lt; node-&gt;course.courseNumber &lt;&lt; &quot;, &quot; &lt;&lt; node-&gt;course.courseTitle &lt;&lt; &#x27;\n&#x27;;
+        printInOrder(node-&gt;right);
+    }
+
+public:
+    BinarySearchTree() = default;
+    BinarySearchTree(const BinarySearchTree&amp;) = delete;
+    BinarySearchTree&amp; operator=(const BinarySearchTree&amp;) = delete;
+    ~BinarySearchTree() { destroy(root); }
+
+    void clear() {
+        destroy(root);
+        root = nullptr;
+    }
+
+    bool empty() const { return root == nullptr; }
+
+    void insert(const Course&amp; course) {
+        Node** current = &amp;root;
+        while (*current) {
+            if (course.courseNumber &lt; (*current)-&gt;course.courseNumber) {
+                current = &amp;((*current)-&gt;left);
+            } else {
+                current = &amp;((*current)-&gt;right);
+            }
+        }
+        *current = new Node(course);
+    }
+
+    const Course* find(const string&amp; courseNumber) const {
+        const string target = upper(trim(courseNumber));
+        const Node* current = root;
+        while (current) {
+            if (target == current-&gt;course.courseNumber) return &amp;current-&gt;course;
+            current = target &lt; current-&gt;course.courseNumber ? current-&gt;left : current-&gt;right;
+        }
+        return nullptr;
+    }
+
+    void print() const { printInOrder(root); }
+};
+
+class CoursePlanner {
+    BinarySearchTree tree;
+    vector&lt;Course&gt; courses; // Input order makes equally eligible schedule choices reproducible.
+    unordered_map&lt;string, vector&lt;string&gt;&gt; dependents; // prerequisite -&gt; courses unlocked
+    unordered_map&lt;string, size_t&gt; initialIndegree;
+
+    static bool buildGraph(const vector&lt;Course&gt;&amp; pending,
+                           unordered_map&lt;string, vector&lt;string&gt;&gt;&amp; edges,
+                           unordered_map&lt;string, size_t&gt;&amp; indegree,
+                           string&amp; error) {
+        unordered_set&lt;string&gt; known;
+        for (const Course&amp; course : pending) {
+            if (!known.insert(course.courseNumber).second) {
+                error = &quot;Duplicate course number: &quot; + course.courseNumber;
+                return false;
+            }
+            edges.emplace(course.courseNumber, vector&lt;string&gt;{});
+            indegree.emplace(course.courseNumber, 0);
+        }
+
+        for (const Course&amp; course : pending) {
+            unordered_set&lt;string&gt; seen;
+            for (const string&amp; prerequisite : course.prerequisites) {
+                if (!known.count(prerequisite)) {
+                    error = course.courseNumber + &quot; has an unknown prerequisite: &quot; + prerequisite;
+                    return false;
+                }
+                if (prerequisite == course.courseNumber) {
+                    error = course.courseNumber + &quot; cannot require itself.&quot;;
+                    return false;
+                }
+                if (!seen.insert(prerequisite).second) {
+                    error = course.courseNumber + &quot; repeats prerequisite: &quot; + prerequisite;
+                    return false;
+                }
+                edges[prerequisite].push_back(course.courseNumber);
+                ++indegree[course.courseNumber];
+            }
+        }
+        return true;
+    }
+
+    static vector&lt;string&gt; topologicalOrder(
+        const vector&lt;Course&gt;&amp; pending,
+        const unordered_map&lt;string, vector&lt;string&gt;&gt;&amp; edges,
+        unordered_map&lt;string, size_t&gt; indegree) {
+        queue&lt;string&gt; ready;
+        for (const Course&amp; course : pending) {
+            if (indegree.at(course.courseNumber) == 0) ready.push(course.courseNumber);
+        }
+        vector&lt;string&gt; order;
+        while (!ready.empty()) {
+            string current = ready.front();
+            ready.pop();
+            order.push_back(current);
+            for (const string&amp; next : edges.at(current)) {
+                if (--indegree.at(next) == 0) ready.push(next);
+            }
+        }
+        return order;
+    }
+
+public:
+    bool empty() const { return tree.empty(); }
+    const Course* find(const string&amp; courseNumber) const { return tree.find(courseNumber); }
+    void printCourseList() const { tree.print(); }
+
+    bool loadFromFile(const string&amp; fileName) {
+        ifstream input(fileName);
+        if (!input) {
+            cout &lt;&lt; &quot;Error: Could not open file \&quot;&quot; &lt;&lt; fileName &lt;&lt; &quot;\&quot;.\n&quot;;
+            return false;
+        }
+        vector&lt;Course&gt; pending;
+        string line;
+        size_t lineNumber = 0;
+        while (getline(input, line)) {
+            ++lineNumber;
+            if (trim(line).empty()) continue;
+            vector&lt;string&gt; tokens = splitCsvLine(line);
+            if (tokens.size() &lt; 2 || tokens[0].empty() || tokens[1].empty()) {
+                cout &lt;&lt; &quot;Error: Invalid course fields on line &quot; &lt;&lt; lineNumber &lt;&lt; &quot;.\n&quot;;
+                return false;
+            }
+            // The supplied CS 300 file pads rows with empty trailing columns.
+            while (tokens.size() &gt; 2 &amp;&amp; tokens.back().empty()) tokens.pop_back();
+            Course course{upper(tokens[0]), tokens[1], {}};
+            for (size_t i = 2; i &lt; tokens.size(); ++i) {
+                if (tokens[i].empty()) {
+                    cout &lt;&lt; &quot;Error: Empty prerequisite on line &quot; &lt;&lt; lineNumber &lt;&lt; &quot;.\n&quot;;
+                    return false;
+                }
+                course.prerequisites.push_back(upper(tokens[i]));
+            }
+            pending.push_back(course);
+        }
+        if (pending.empty()) {
+            cout &lt;&lt; &quot;Error: No courses found.\n&quot;;
+            return false;
+        }
+
+        unordered_map&lt;string, vector&lt;string&gt;&gt; newEdges;
+        unordered_map&lt;string, size_t&gt; newIndegree;
+        string error;
+        if (!buildGraph(pending, newEdges, newIndegree, error)) {
+            cout &lt;&lt; &quot;Error: &quot; &lt;&lt; error &lt;&lt; &#x27;\n&#x27;;
+            return false;
+        }
+        if (topologicalOrder(pending, newEdges, newIndegree).size() != pending.size()) {
+            cout &lt;&lt; &quot;Error: Circular prerequisite dependency detected.\n&quot;;
+            return false;
+        }
+
+        // Commit only after validating the entire file; a bad reload retains old data.
+        tree.clear();
+        for (const Course&amp; course : pending) tree.insert(course);
+        courses = std::move(pending);
+        dependents = std::move(newEdges);
+        initialIndegree = std::move(newIndegree);
+        cout &lt;&lt; &quot;Data loaded successfully (&quot; &lt;&lt; courses.size() &lt;&lt; &quot; courses).\n&quot;;
+        return true;
+    }
+
+    void printRecommendedSchedule() const {
+        const vector&lt;string&gt; order = topologicalOrder(courses, dependents, initialIndegree);
+        unordered_map&lt;string, string&gt; titles;
+        for (const Course&amp; course : courses) titles.emplace(course.courseNumber, course.courseTitle);
+        cout &lt;&lt; &quot;Recommended prerequisite-respecting order:\n&quot;;
+        for (size_t i = 0; i &lt; order.size(); ++i) {
+            cout &lt;&lt; (i + 1) &lt;&lt; &quot;. &quot; &lt;&lt; order[i] &lt;&lt; &quot;, &quot; &lt;&lt; titles.at(order[i]) &lt;&lt; &#x27;\n&#x27;;
+        }
+        cout &lt;&lt; &quot;This is a prerequisite order, not a term-by-term schedule.\n&quot;;
+    }
+};
+
+static void displayMenu() {
+    cout &lt;&lt; &quot;1. Load Data Structure.\n&quot;
+         &lt;&lt; &quot;2. Print Course List (alphanumeric).\n&quot;
+         &lt;&lt; &quot;3. Print Course.\n&quot;
+         &lt;&lt; &quot;4. Print Prerequisite-Respecting Order.\n&quot;
+         &lt;&lt; &quot;9. Exit\n&quot;;
+}
+
+static bool readMenuChoice(int&amp; choice) {
+    string input;
+    if (!getline(cin, input)) return false;
+    stringstream stream(input);
+    if (!(stream &gt;&gt; choice)) return false;
+    string extra;
+    return !(stream &gt;&gt; extra);
+}
+
+int main() {
+    CoursePlanner planner;
+    cout &lt;&lt; &quot;Welcome to the course planner.\n&quot;;
+    while (cin) {
+        displayMenu();
+        cout &lt;&lt; &quot;What would you like to do? &quot;;
+        int choice = 0;
+        if (!readMenuChoice(choice)) {
+            if (!cin) break;
+            cout &lt;&lt; &quot;Invalid input.\n&quot;;
+            continue;
+        }
+        if (choice == 9) {
+            cout &lt;&lt; &quot;Thank you for using the course planner!\n&quot;;
+            break;
+        }
+        if (choice == 1) {
+            cout &lt;&lt; &quot;What is the name of the input file? &quot;;
+            string fileName;
+            if (!getline(cin, fileName)) break;
+            planner.loadFromFile(trim(fileName));
+            continue;
+        }
+        if (choice &lt; 2 || choice &gt; 4) {
+            cout &lt;&lt; choice &lt;&lt; &quot; is not a valid option.\n&quot;;
+            continue;
+        }
+        if (planner.empty()) {
+            cout &lt;&lt; &quot;Please load the data file first.\n&quot;;
+        } else if (choice == 2) {
+            cout &lt;&lt; &quot;Course list in alphanumeric order:\n&quot;;
+            planner.printCourseList();
+        } else if (choice == 4) {
+            planner.printRecommendedSchedule();
+        } else {
+            cout &lt;&lt; &quot;What course do you want to know about? &quot;;
+            string courseNumber;
+            if (!getline(cin, courseNumber)) break;
+            const Course* course = planner.find(courseNumber);
+            if (!course) {
+                cout &lt;&lt; &quot;Course not found.\n&quot;;
+            } else {
+                cout &lt;&lt; course-&gt;courseNumber &lt;&lt; &quot;, &quot; &lt;&lt; course-&gt;courseTitle &lt;&lt; &#x27;\n&#x27;;
+                cout &lt;&lt; &quot;Prerequisites: &quot;;
+                if (course-&gt;prerequisites.empty()) cout &lt;&lt; &quot;None&quot;;
+                for (size_t i = 0; i &lt; course-&gt;prerequisites.size(); ++i) {
+                    if (i) cout &lt;&lt; &quot;, &quot;;
+                    cout &lt;&lt; course-&gt;prerequisites[i];
+                }
+                cout &lt;&lt; &#x27;\n&#x27;;
+            }
+        }
+    }
+    return 0;
+}
+</code></pre></main></body></html>

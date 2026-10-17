@@ -1,0 +1,66 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CRUD_Python_Module.py source</title><link rel="stylesheet" href="../styles.css"><body><main class="source-page"><a href="../index.html#artifacts">Back to portfolio</a><h1>CRUD_Python_Module.py</h1><p>Readable source view. Original dashboard credentials are masked for public sharing.</p><pre><code>&quot;&quot;&quot;Compatibility facade for the enhanced Grazioso Salvare application.&quot;&quot;&quot;
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Mapping, Sequence
+from typing import Any
+
+from config import MongoConfig
+from repository import AnimalRepository
+from service import AnimalRepositoryProtocol, AnimalService
+
+logging.basicConfig(level=logging.INFO, format=&quot;%(asctime)s %(levelname)s %(name)s - %(message)s&quot;)
+
+
+class AnimalShelter:
+    &quot;&quot;&quot;Facade preserving CRUD while exposing database-focused enhancements.&quot;&quot;&quot;
+
+    def __init__(self, username: str | None = None, password: str | None = None, *, repository: AnimalRepositoryProtocol | None = None, allow_mass_changes: bool = False) -&gt; None:
+        if repository is not None:
+            selected_repository = repository
+        else:
+            if username is None and password is None:
+                config = MongoConfig.from_env()
+            else:
+                config = MongoConfig.from_credentials(username or &quot;&quot;, password or &quot;&quot;)
+            selected_repository = AnimalRepository(config)
+        self._service = AnimalService(selected_repository, allow_mass_changes=allow_mass_changes)
+
+    @classmethod
+    def from_env(cls, *, allow_mass_changes: bool = False) -&gt; &quot;AnimalShelter&quot;:
+        return cls(allow_mass_changes=allow_mass_changes)
+
+    def ensure_indexes(self) -&gt; list[str]:
+        return self._service.ensure_indexes()
+
+    def create(self, data: Mapping[str, Any] | None) -&gt; bool:
+        return self._service.create(data)
+
+    def read(self, query: Mapping[str, Any] | None, *, projection: Mapping[str, int] | None = None, limit: int = 0, skip: int = 0, sort: Sequence[tuple[str, int]] | None = None) -&gt; list[dict[str, Any]]:
+        return self._service.read(query, projection=projection, limit=limit, skip=skip, sort=sort)
+
+    def count(self, query: Mapping[str, Any] | None) -&gt; int:
+        return self._service.count(query)
+
+    def aggregate_breed_counts(self, query: Mapping[str, Any] | None, *, limit: int = 10) -&gt; list[dict[str, Any]]:
+        return self._service.aggregate_breed_counts(query, limit=limit)
+
+    def database_summary(self, query: Mapping[str, Any] | None) -&gt; dict[str, Any]:
+        return self._service.database_summary(query)
+
+    def update(self, query: Mapping[str, Any] | None, new_values: Mapping[str, Any] | None) -&gt; int:
+        return self._service.update(query, new_values)
+
+    def delete(self, query: Mapping[str, Any] | None) -&gt; int:
+        return self._service.delete(query)
+
+    def close(self) -&gt; None:
+        self._service.close()
+
+    def __enter__(self) -&gt; &quot;AnimalShelter&quot;:
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -&gt; None:
+        self.close()
+</code></pre></main></body></html>

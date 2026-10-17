@@ -1,0 +1,103 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>test_database_enhancements.py source</title><link rel="stylesheet" href="../styles.css"><body><main class="source-page"><a href="../index.html#artifacts">Back to portfolio</a><h1>test_database_enhancements.py</h1><p>Readable source view. Original dashboard credentials are masked for public sharing.</p><pre><code>&quot;&quot;&quot;Tests for Milestone Four database-focused enhancements.&quot;&quot;&quot;
+
+import sys
+import types
+import unittest
+from unittest.mock import MagicMock, Mock
+
+# The course/Codio environment supplies pymongo. The local grading test below
+# provides a tiny import stub so repository behavior can be unit-tested without
+# requiring a live MongoDB installation.
+try:
+    import pymongo  # noqa: F401
+except ModuleNotFoundError:
+    pymongo_stub = types.ModuleType(&quot;pymongo&quot;)
+    pymongo_stub.ASCENDING = 1
+    pymongo_stub.DESCENDING = -1
+    pymongo_stub.MongoClient = MagicMock
+    errors_stub = types.ModuleType(&quot;pymongo.errors&quot;)
+    class PyMongoError(Exception):
+        pass
+    errors_stub.PyMongoError = PyMongoError
+    sys.modules[&quot;pymongo&quot;] = pymongo_stub
+    sys.modules[&quot;pymongo.errors&quot;] = errors_stub
+
+from config import MongoConfig
+from exceptions import ValidationError
+from repository import AnimalRepository
+from service import AnimalService
+
+
+class ServiceDatabaseEnhancementTests(unittest.TestCase):
+    def setUp(self):
+        self.repository = Mock()
+        self.service = AnimalService(self.repository)
+
+    def test_read_supports_projection_paging_and_sort(self):
+        self.repository.read.return_value = [{&quot;animal_id&quot;: &quot;A1&quot;}]
+        result = self.service.read(
+            {&quot;animal_type&quot;: &quot;Dog&quot;},
+            projection={&quot;animal_id&quot;: 1, &quot;breed&quot;: 1, &quot;_id&quot;: 0},
+            limit=25,
+            skip=50,
+            sort=[(&quot;animal_id&quot;, 1)],
+        )
+        self.assertEqual([{&quot;animal_id&quot;: &quot;A1&quot;}], result)
+        self.repository.read.assert_called_once_with(
+            {&quot;animal_type&quot;: &quot;Dog&quot;},
+            projection={&quot;animal_id&quot;: 1, &quot;breed&quot;: 1, &quot;_id&quot;: 0},
+            limit=25,
+            skip=50,
+            sort=[(&quot;animal_id&quot;, 1)],
+        )
+
+    def test_read_rejects_excessive_limit(self):
+        with self.assertRaises(ValidationError):
+            self.service.read({}, limit=5001)
+
+    def test_aggregate_limit_is_validated(self):
+        with self.assertRaises(ValidationError):
+            self.service.aggregate_breed_counts({}, limit=0)
+
+    def test_database_summary_delegates_to_repository(self):
+        self.repository.database_summary.return_value = {&quot;total&quot;: 4}
+        self.assertEqual({&quot;total&quot;: 4}, self.service.database_summary({&quot;animal_type&quot;: &quot;Dog&quot;}))
+
+
+class RepositoryDatabaseEnhancementTests(unittest.TestCase):
+    def make_repository(self):
+        client = MagicMock()
+        database = MagicMock()
+        collection = MagicMock()
+        client.__getitem__.return_value = database
+        database.__getitem__.return_value = collection
+        config = MongoConfig(username=&quot;u&quot;, password=&quot;p&quot;)
+        repo = AnimalRepository(config, client=client)
+        return repo, collection
+
+    def test_ensure_indexes_creates_expected_indexes(self):
+        repo, collection = self.make_repository()
+        collection.create_index.side_effect = [&quot;idx_animal_id&quot;, &quot;idx_rescue_filter&quot;, &quot;idx_location&quot;]
+        names = repo.ensure_indexes()
+        self.assertEqual([&quot;idx_animal_id&quot;, &quot;idx_rescue_filter&quot;, &quot;idx_location&quot;], names)
+        self.assertEqual(3, collection.create_index.call_count)
+
+    def test_count_uses_count_documents(self):
+        repo, collection = self.make_repository()
+        collection.count_documents.return_value = 17
+        self.assertEqual(17, repo.count({&quot;animal_type&quot;: &quot;Dog&quot;}))
+        collection.count_documents.assert_called_once_with({&quot;animal_type&quot;: &quot;Dog&quot;})
+
+    def test_breed_counts_use_aggregation_pipeline(self):
+        repo, collection = self.make_repository()
+        collection.aggregate.return_value = iter([{&quot;breed&quot;: &quot;Labrador Retriever Mix&quot;, &quot;count&quot;: 5}])
+        result = repo.aggregate_breed_counts({&quot;animal_type&quot;: &quot;Dog&quot;}, limit=10)
+        self.assertEqual(5, result[0][&quot;count&quot;])
+        pipeline = collection.aggregate.call_args.args[0]
+        self.assertEqual({&quot;$match&quot;: {&quot;animal_type&quot;: &quot;Dog&quot;}}, pipeline[0])
+        self.assertEqual({&quot;$limit&quot;: 10}, pipeline[4])
+
+
+if __name__ == &quot;__main__&quot;:
+    unittest.main()
+</code></pre></main></body></html>

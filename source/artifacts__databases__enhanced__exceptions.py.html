@@ -1,0 +1,18 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>exceptions.py source</title><link rel="stylesheet" href="../styles.css"><body><main class="source-page"><a href="../index.html#artifacts">Back to portfolio</a><h1>exceptions.py</h1><p>Readable source view. Original dashboard credentials are masked for public sharing.</p><pre><code>&quot;&quot;&quot;Custom exceptions for the Grazioso Salvare application.&quot;&quot;&quot;
+
+
+class AnimalShelterError(Exception):
+    &quot;&quot;&quot;Base exception for application-level errors.&quot;&quot;&quot;
+
+
+class ConfigurationError(AnimalShelterError):
+    &quot;&quot;&quot;Raised when required application configuration is missing or invalid.&quot;&quot;&quot;
+
+
+class ValidationError(AnimalShelterError):
+    &quot;&quot;&quot;Raised when input data does not meet application requirements.&quot;&quot;&quot;
+
+
+class RepositoryError(AnimalShelterError):
+    &quot;&quot;&quot;Raised when a database operation cannot be completed safely.&quot;&quot;&quot;
+</code></pre></main></body></html>
